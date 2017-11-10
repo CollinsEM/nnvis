@@ -12,7 +12,7 @@ var neuronSize;
 var proxDendrites;
 var maxNeurons = 1000;
 var r = 800;
-var numLayers = 4;
+var numLayers = 8;
 var gui;
 
 window.addEventListener( 'load', init, false );
@@ -85,6 +85,7 @@ function animate() {
     cortex.updateProximalPos();
   }
   cortex.updateNodeStates();
+  cortex.updateDistalCol();
   cortex.updateProximalCol();
 
   

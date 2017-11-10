@@ -1,3 +1,13 @@
+class Neuron {
+  constructor(px, py, pz, vx, vy, vz) {
+    this.pos = { x: px, y: py, z: pz };
+    this.vel = { x: vx, y: vy, z: vz };
+    this.predicted = false;
+    this.activated = false;
+    this.distalNodes = new Set();
+    this.proximalNodes = new Set();
+  }
+}
 //--------------------------------------------------------------------
 // CortexMesh displays a visualization of the current state of the
 // neural network.
@@ -7,7 +17,7 @@ class CortexMesh extends THREE.Object3D {
   constructor(layers) {
     super();
     this.numLayers = layers || 1;
-    this.maxNodesPerLayer = 100;
+    this.maxNodesPerLayer = gui.maxNodesPerLayer;
     this.nodeGeom = [];
     this.nodePos = [];
     this.nodeCol = [];
@@ -28,16 +38,20 @@ class CortexMesh extends THREE.Object3D {
     this.proximalLayer = [];
     //------------------
     this.distalGeom = [];
+    this.distalCol = [];
     this.distalInd = [];
+    this.distalColAttrib = [];
     this.distalIndAttrib = [];
     this.distalLayer = [];
     //------------------
     this.initNodes();
-    this.initDendrites();
-    // this.updateDistalConnections();
-    // this.updateProximalConnections();
-    // this.updateProximalPos();
-    // this.updateProximalCol();
+    this.initDistalDendrites();
+    this.updateDistalConnections();
+    this.updateDistalCol();
+    this.initProximalDendrites();
+    this.updateProximalConnections();
+    this.updateProximalPos();
+    this.updateProximalCol();
   }
   //------------------------------------------------------------------
   initNodes() {
@@ -107,35 +121,49 @@ class CortexMesh extends THREE.Object3D {
     }
   }
   //------------------------------------------------------------------
-  initDendrites() {
+  initDistalDendrites() {
     var N = this.maxNodesPerLayer;
 	  var lineMat = new THREE.LineBasicMaterial( {
 		  vertexColors: THREE.VertexColors,
 		  blending: THREE.AdditiveBlending,
 		  transparent: true,
-      opacity: 0.5
+      opacity: 0.25
 	  } );
     // DISTAL
     for (var k=1; k<this.numLayers; ++k) {
 	    this.distalGeom[k] = new THREE.BufferGeometry();
-      this.distalInd[k] = new Uint32Array(2*N*N);
+	    this.distalCol[k]  = new Float32Array(6*N*(N-1)*gui.maxDistDend);
+      this.distalInd[k]  = new Uint32Array(2*N*(N-1)*gui.maxDistDend);
+      this.distalColAttrib[k] = new THREE.BufferAttribute(this.distalCol[k], 3)
+        .setDynamic( true );
       this.distalIndAttrib[k] = new THREE.BufferAttribute(this.distalInd[k], 1)
         .setDynamic( true );
 	    this.distalGeom[k].setIndex(this.distalIndAttrib[k]);
       
 	    this.distalGeom[k].addAttribute('position', this.posAttrib[k]);
-	    this.distalGeom[k].addAttribute('color', this.colAttrib[k]);
+	    // this.distalGeom[k].addAttribute('color', this.colAttrib[k]);
+	    this.distalGeom[k].addAttribute('color', this.distalColAttrib[k]);
       this.distalGeom[k].setDrawRange(0, 0);
       
 	    this.distalLayer[k] = new THREE.LineSegments( this.distalGeom[k], lineMat );
       this.add(this.distalLayer[k]);
     }
+  }
+  //------------------------------------------------------------------
+  initProximalDendrites() {
+    var N = this.maxNodesPerLayer;
+	  var lineMat = new THREE.LineBasicMaterial( {
+		  vertexColors: THREE.VertexColors,
+		  blending: THREE.AdditiveBlending,
+		  transparent: true,
+      opacity: 0.25
+	  } );
     // PROXIMAL
     for (var k=0; k<this.numLayers; ++k) {
 	    this.proximalGeom[k] = new THREE.BufferGeometry();
-	    this.proximalPos[k]  = new Float32Array(6*N*N);
-	    this.proximalCol[k]  = new Float32Array(6*N*N);
-      // this.proximalInd[k]  = new Uint32Array(2*N*N);
+	    this.proximalPos[k]  = new Float32Array(6*N*gui.maxProxDend*20);
+	    this.proximalCol[k]  = new Float32Array(6*N*gui.maxProxDend*20);
+      // this.proximalInd[k]  = new Uint32Array(2*N*gui.maxProxDend);
       
       // this.proximalIndAttrib[k] = new THREE.BufferAttribute(this.proximalInd[k], 1)
       //   .setDynamic( true );
@@ -154,28 +182,27 @@ class CortexMesh extends THREE.Object3D {
     }
   }
   //------------------------------------------------------------------
-  // Update distal connections
+  // Update distal synapse connections
   //------------------------------------------------------------------
   updateDistalConnections() {
     var N = this.maxNodesPerLayer;
     for (var k=1; k<this.numLayers; ++k) {
       var n = 0;
       var iPos = this.nodePos[k];
-      var nodeData = this.nodeData[k];
       for (var i=0, i0=0, i2=2; i<N; ++i, i0+=3, i2+=3) {
-        var iData = nodeData[i];
+        var iData = this.nodeData[k][i];
         var nearest = this.findNearestNodes(iPos[i0], iPos[i2],
                                             k, gui.numDistDend,
                                             gui.maxDistDist);
         iData.distalNodes.clear();
         nearest.forEach( function(j) {
-          this.nodeData[k][i].distalNodes.add(j);
+          iData.distalNodes.add(j);
           this.distalInd[k][n++] = i;
           this.distalInd[k][n++] = j;
         }, this );
       }
 	    this.distalIndAttrib[k].needsUpdate = true;
-      this.distalGeom[k].setDrawRange(0, n);
+      this.distalGeom[k].setDrawRange(0, 2*n);
     }
   }
   //------------------------------------------------------------------
@@ -184,19 +211,20 @@ class CortexMesh extends THREE.Object3D {
   updateProximalConnections() {
     var N = this.maxNodesPerLayer;
     for (var k=1; k<this.numLayers; ++k) {
-      var iPos = this.nodePos[k];
       var n = 0;
-      for (var i=0, i0=0, i1=1, i2=2; i<N; ++i, i0+=3, i1+=3, i2+=3) {
+      var iPos = this.nodePos[k];
+      for (var i=0, i0=0, i2=2; i<N; ++i, i0+=3, i2+=3) {
+        var iData = this.nodeData[k][i];
         var nearest = this.findNearestNodes(iPos[i0], iPos[i2],
                                             k-1, gui.numProxDend,
                                             gui.maxProxDist);
-        var iData = this.nodeData[k][i];
         iData.proximalNodes.clear();
         nearest.forEach( function(j) {
           iData.proximalNodes.add(j);
         } );
         n += nearest.length;
       }
+      this.proximalGeom[k].setDrawRange(0, 2*n*gui.numDendSegs);
     }
   }
   //------------------------------------------------------------------
@@ -229,8 +257,33 @@ class CortexMesh extends THREE.Object3D {
           }
         } );
       }
-      this.proximalGeom[k].setDrawRange(0, n);
 	    this.proximalGeom[k].attributes.position.needsUpdate = true;
+    }
+  }
+  //------------------------------------------------------------------
+  // Update distal synapse colors
+  //------------------------------------------------------------------
+  updateDistalCol() {
+    var N = this.maxNodesPerLayer;
+    for (var k=1; k<this.numLayers; ++k) {
+      var c=0;
+      var iCol = this.nodeCol[k];
+      var jCol = this.nodeCol[k];
+      var distCol = this.distalCol[k];
+      for (var i=0, i0=0, i1=1, i2=2; i<N; ++i, i0+=3, i1+=3, i2+=3) {
+        var iData = this.nodeData[k][i];
+        iData.distalNodes.forEach( function(j) {
+          var j0=3*j, j1=j0+1, j2=j0+2;
+          var w = jCol[j0];
+          distCol[c++] = Math.max(jCol[j0], 0.1);
+          distCol[c++] = Math.max(jCol[j1], 0.1);
+          distCol[c++] = Math.max(jCol[j2], 0.1);
+          distCol[c++] = Math.max(jCol[j0], 0.1);
+          distCol[c++] = Math.max(jCol[j1], 0.1);
+          distCol[c++] = Math.max(jCol[j2], 0.1);
+        }, this );
+      }
+	    this.distalGeom[k].attributes.color.needsUpdate = true;
     }
   }
   //------------------------------------------------------------------
@@ -246,17 +299,18 @@ class CortexMesh extends THREE.Object3D {
         iData.proximalNodes.forEach( function(j) {
           var j0=3*j, j1=j0+1, j2=j0+2;
           var cCrv = new THREE.LineCurve3(
-            new THREE.Vector3(iCol[i0], iCol[i1], iCol[i2]),
-            new THREE.Vector3(jCol[j0], jCol[j1], jCol[j2])
+            // new THREE.Vector3(iCol[i0], iCol[i1], 0),
+            new THREE.Vector3(jCol[j0], jCol[j1], 0),
+            new THREE.Vector3(jCol[j0], jCol[j1], 0)
           );
           var col = cCrv.getPoints(gui.numDendSegs);
           for (var s=0; s<gui.numDendSegs; ++s) {
-            proxCol[c++] = col[s].x;
-            proxCol[c++] = col[s].y;
-            proxCol[c++] = col[s].z;
-            proxCol[c++] = col[s+1].x;
-            proxCol[c++] = col[s+1].y;
-            proxCol[c++] = col[s+1].z;
+            proxCol[c++] = Math.max(col[s].x, 0.1);
+            proxCol[c++] = Math.max(col[s].y, 0.1);
+            proxCol[c++] = Math.max(col[s].z, 0.1);
+            proxCol[c++] = Math.max(col[s+1].x, 0.1);
+            proxCol[c++] = Math.max(col[s+1].y, 0.1);
+            proxCol[c++] = Math.max(col[s+1].z, 0.1);
           }
         } );
       }
@@ -288,7 +342,31 @@ class CortexMesh extends THREE.Object3D {
     }
   }
   //------------------------------------------------------------------
+  // Render active neurons
+  //------------------------------------------------------------------
+  setActiveNeurons() {
+    var N = this.maxNodesPerLayer;
+    for (var k=0; k<this.numLayers; ++k) {
+      for (var i=0, i0=0; i<N; ++i, i0+=3) {
+		    var iData = this.nodeData[k][i];
+        if (iData.predicted) {
+          this.nodeCol[k][i0] = 0;
+          this.nodeCol[k][i1] = 1;
+          this.nodeCol[k][i2] = 0;
+        }
+        else {
+          this.nodeCol[k][i0] = 1;
+          this.nodeCol[k][i1] = 0;
+          this.nodeCol[k][i2] = 0;
+        }
+        this.nodeSize[k][i] = 100;
+      }
+    }
+  }
+  //------------------------------------------------------------------
+  //------------------------------------------------------------------
   // Update Neuron States
+  //------------------------------------------------------------------
   updateNodeStates() {
     var N = this.maxNodesPerLayer;
 	  var color = this.nodeCol[0];
@@ -317,18 +395,18 @@ class CortexMesh extends THREE.Object3D {
 	    sizes = this.nodeSize[k];
 	    for ( var i=0, i0=0, i1=1, i2=2; i<N; ++i, i0+=3, i1+=3, i2+=3 ) {
 		    var iData = this.nodeData[k][i];
-
+        // The size of each node is proportional to its activation energy.
         var sumDist = 0;
         iData.distalNodes.forEach( function(j) {
-          if (this.nodeData[k][j].activated) sumDist++;
+          sumDist += this.nodeSize[k][j];
         }, this );
-        var distalActivation = (sumDist > 1);
+        var distalActivation = (sumDist > 10);
 
         var sumProx = 0;
         iData.proximalNodes.forEach( function(j) {
-          if (this.nodeData[k-1][j].activated) sumProx++;
+          sumProx += this.nodeSize[k-1][j];
         }, this );
-        var proximalActivation = (sumProx > 1);
+        var proximalActivation = (sumProx > 100);
 
         if (iData.activated) {
           // Node has recently been activated. Node cannot fire again
@@ -366,17 +444,17 @@ class CortexMesh extends THREE.Object3D {
           // this node is now in the predictive state.
           sizes[i] = 50;
           color[i0] = 0;
-          color[i1] = 0.5;
-          color[i2] = 0.5;
+          color[i1] = 1;
+          color[i2] = 1;
           iData.predicted = true;
         }
         else if (iData.predicted) {
           // Node is in the predicted state, but no activation has
           // occured.  The partial depolarization is now decaying.
-          sizes[i] *= 0.95;
-          color[i0] *= 0.95;
-          color[i1] *= 0.95;
-          color[i2] *= 0.95;
+          sizes[i] *= 0.9;
+          color[i0] *= 0.9;
+          color[i1] *= 0.9;
+          color[i2] *= 0.9;
           iData.predicted = (sizes[i] > 5);
         }
         else {

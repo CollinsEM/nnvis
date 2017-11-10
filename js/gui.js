@@ -2,6 +2,10 @@
 class GlobalParams extends dat.GUI {
   constructor(r) {
     super();
+    this.maxDistDend = 20;
+    this.maxProxDend = 20;
+    this.maxNodesPerLayer = 100;
+    this.maxDendSegs = 19;
     //------------------------------------
     this.showDots = true;
 	  this.add( this, "showDots" )
@@ -14,8 +18,8 @@ class GlobalParams extends dat.GUI {
     this.moving = false;
 	  this.add( this, "moving" );
     
-    this.numDendSegs = 20;
-	  this.add( this, "numDendSegs", 1, 20, 1 )
+    this.numDendSegs = 19;
+	  this.add( this, "numDendSegs", 1, this.maxDendSegs, 1 )
       .onChange( function( value ) {
         this.numDendSegs = parseInt( value );
         cortex.updateProximalPos();
@@ -33,8 +37,8 @@ class GlobalParams extends dat.GUI {
         }
       } );
     
-    this.numProxDend = 10;
-	  prox.add( this, "numProxDend", 1, 20, 1 )
+    this.numProxDend = 3;
+	  prox.add( this, "numProxDend", 1, this.maxProxDend, 1 )
       .onChange( function( value ) {
         this.numProxDend = parseInt( value );
         cortex.updateProximalConnections();
@@ -42,8 +46,8 @@ class GlobalParams extends dat.GUI {
         cortex.updateProximalCol();
       } );
     
-	  this.maxProxDist = 100;
-	  prox.add( this, "maxProxDist", 10, r )
+	  this.maxProxDist = 0.2*r;
+	  prox.add( this, "maxProxDist", 10, r*Math.sqrt(2) )
       .onChange( function( value ) {
         this.maxProxDist = parseFloat( value );
         cortex.updateProximalConnections();
@@ -63,16 +67,19 @@ class GlobalParams extends dat.GUI {
       } );
     
     this.numDistDend = 5;
-	  dist.add( this, "numDistDend", 0, 20, 1 )
+	  dist.add( this, "numDistDend", 0, this.maxDistDend, 1 )
       .onChange( function( value ) {
         this.numDistDend = parseInt( value );
         cortex.updateDistalConnections();
+        cortex.updateDistalCol();
       } );
-	  this.maxDistDist = 100;
-	  dist.add( this, "maxDistDist", 10, r )
+    
+	  this.maxDistDist = 0.5*r;
+	  dist.add( this, "maxDistDist", 10, r*Math.sqrt(2) )
       .onChange( function( value ) {
         this.maxDistDist = parseFloat( value );
         cortex.updateDistalConnections();
+        cortex.updateDistalCol();
       } );
     
   }
